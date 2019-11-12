@@ -234,7 +234,7 @@ pipelines:
                 arguments:
                 - -c 
                 - 'mkdir -p maven-repo &&
-                  docker run --user `id -u`:`id -g` --group-add 999 --rm -v /home/go/.m2:/build/.m2 -v $PWD/maven-repo:/maven-repo -v $PWD:/build -v /var/run/docker.sock:/var/run/docker.sock -v $HOME/.docker:/.docker --entrypoint /bin/bash ubirch/maven-build:vOpenJDK_${GO_DEPENDENCY_LABEL_MAVEN} -c "mvn deploy -B -DskipTests=true -DskipDockerPush=true -Ddockerfile.dockerConfigFile=/.docker/config.json -Duser.home=/build --set image.tag=${GO_PIPELINE_LABEL} -DimageName=#{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} -Dbuild.number=${GO_PIPELINE_LABEL}" &&
+                  docker run --user `id -u`:`id -g` --group-add 999 --rm -v /home/go/.m2:/build/.m2 -v $PWD/maven-repo:/maven-repo -v $PWD:/build -v /var/run/docker.sock:/var/run/docker.sock -v $HOME/.docker:/.docker --entrypoint /bin/bash ubirch/maven-build:vOpenJDK_${GO_DEPENDENCY_LABEL_MAVEN} -c "mvn deploy -B -DskipTests=true -DskipDockerPush=true -Ddockerfile.dockerConfigFile=/.docker/config.json -Duser.home=/build -DimageName=#{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} -Dbuild.number=${GO_PIPELINE_LABEL}" &&
                   docker push "#{DOCKER_IMAGE}:${GO_PIPELINE_LABEL}" &&
                   docker tag "#{DOCKER_IMAGE}:${GO_PIPELINE_LABEL}" "#{DOCKER_IMAGE}:latest" &&
                   docker push "#{DOCKER_IMAGE}:latest"'
