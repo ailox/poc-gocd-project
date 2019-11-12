@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strings"
 	"text/template"
 )
 
@@ -22,9 +23,17 @@ type Pipeline struct {
 }
 
 func main() {
-	tmpl := template.Must(template.New("yaml").ParseGlob("templates/*"))
+	funcMap := template.FuncMap{
+		"ToUpper": strings.ToUpper,
+		"ToLower": strings.ToLower,
+		"Title":   strings.Title,
+	}
 
-	pipeline := &Pipeline{
+	tmpl := template.Must(template.New("yaml").Funcs(funcMap).ParseGlob("templates/*"))
+
+	environments := []string{"dev", "demo", "prod"}
+
+	webui := &Pipeline{
 		Type:            "dockerfile",
 		Name:            "web-ui",
 		Group:           "wip-paul",
@@ -41,5 +50,10 @@ func main() {
 		HelmChartPath: "web-ui/",
 	}
 
-	tmpl.ExecuteTemplate(os.Stdout, "build.yaml.tmpl", map[string]interface{}{"Pipeline": pipeline})
+	pipelines := []*Pipeline{webui}
+
+	tmpl.ExecuteTemplate(os.Stdout, "build.yaml.tmpl", map[string]interface{}{
+		"Pipelines": pipelines,
+		"Envs":      environments,
+	})
 }

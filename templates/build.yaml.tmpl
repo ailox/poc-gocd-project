@@ -1,23 +1,24 @@
 --
 format_version: 3
 pipelines:
-  {{.Pipeline.Name}}-build:
-{{- if eq .Pipeline.Type "maven" }}
+{{- range $pipeline := .Pipelines }}
+  {{$pipeline.Name}}-build:
+{{- if eq $pipeline.Type "maven" }}
     # MAVEN-DOCKER
-    {{ if .Pipeline.Group }}group: {{.Pipeline.Group}}{{end}}
+    {{ if $pipeline.Group }}group: {{$pipeline.Group}}{{end}}
     label_template: ${COUNT}-${git[:7]}
     lock_behavior: unlockWhenFinished
     display_order: -1
     materials:
       git:
-        git: {{.Pipeline.Git.URL}}
+        git: {{$pipeline.Git.URL}}
         shallow_clone: false
         auto_update: true
-        branch: {{.Pipeline.Git.Branch}}
+        branch: {{$pipeline.Git.Branch}}
         destination: build
       maven:
         ignore_for_scheduling: false
-        pipeline: "{{.Pipeline.Name}}-build"
+        pipeline: "{{$pipeline.Name}}-build"
         stage: docker
     stages:
     - docker:
@@ -42,18 +43,18 @@ pipelines:
     parameters:
       MAVEN_CMD: deploy
       SERVICE_NAME: ubirch-web-ui
-{{- else if eq .Pipeline.Type "dockerfile" }}
+{{- else if eq $pipeline.Type "dockerfile" }}
     # DOCKERFILE
-    {{ if .Pipeline.Group }}group: {{.Pipeline.Group}}{{end}}
+    {{ if $pipeline.Group }}group: {{$pipeline.Group}}{{end}}
     label_template: ${COUNT}-${git[:7]}
     lock_behavior: unlockWhenFinished
     display_order: -1
     materials:
       git:
-        git: {{.Pipeline.Git.URL}}
+        git: {{$pipeline.Git.URL}}
         shallow_clone: false
         auto_update: true
-        branch: {{.Pipeline.Git.Branch}}
+        branch: {{$pipeline.Git.Branch}}
         destination: build
     stages:
     - docker:
@@ -78,11 +79,11 @@ pipelines:
                 working_directory: build
                 run_if: passed
     parameters:
-      DOCKER_IMAGE: {{.Pipeline.DockerImage}}
+      DOCKER_IMAGE: {{$pipeline.DockerImage}}
 {{ else }}
-    # Unknown pipeline type '{{ .Pipeline.Type }}'
+    # Unknown pipeline type '{{ $pipeline.Type }}'
 {{ end }}
-  {{.Pipeline.Name}}-deploy-dev:
+  {{$pipeline.Name}}-deploy-dev:
     group: wip-paul
     label_template: ${service}
     lock_behavior: none
@@ -90,13 +91,13 @@ pipelines:
     materials:
       service:
         ignore_for_scheduling: false
-        pipeline: "{{.Pipeline.Name}}-build"
+        pipeline: "{{$pipeline.Name}}-build"
         stage: docker
       git:
-        git: {{.Pipeline.HelmGit.URL}}
+        git: {{$pipeline.HelmGit.URL}}
         shallow_clone: false
         auto_update: true
-        branch: {{.Pipeline.HelmGit.Branch}}
+        branch: {{$pipeline.HelmGit.Branch}}
         destination: build
     stages:
     - deploy:
@@ -156,9 +157,91 @@ pipelines:
                 working_directory: build
                 run_if: passed
     parameters:
-      ENVIRONMENT: dev
-      NAMESPACE: {{.Pipeline.NamespacePrefix}}-dev
-      CHARTPATH: {{.Pipeline.HelmChartPath}}
-      K8S_CFG: ubirchDevconfig.conf
-      SERVICE_NAME: {{.Pipeline.Name}}
-      DOCKER_IMAGE: {{.Pipeline.DockerImage}}
+      ENVIRONMENT: {{"dev"}}
+      NAMESPACE: {{$pipeline.NamespacePrefix}}-{{"dev"}}
+      CHARTPATH: {{$pipeline.HelmChartPath}}
+      K8S_CFG: ubirch{{"dev" | Title}}config.conf
+      SERVICE_NAME: {{$pipeline.Name}}
+      DOCKER_IMAGE: {{$pipeline.DockerImage}}
+
+  {{$pipeline.Name}}-deploy-demo:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "{{$pipeline.Name}}-deploy-dev"
+        stage: promote
+      git:
+        git: {{$pipeline.HelmGit.URL}}
+        shallow_clone: false
+        auto_update: true
+        branch: {{$pipeline.HelmGit.Branch}}
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo 'manually promoted on $(date)'
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: {{"demo"}}
+      NAMESPACE: {{$pipeline.NamespacePrefix}}-{{"demo"}}
+      CHARTPATH: {{$pipeline.HelmChartPath}}
+      K8S_CFG: ubirch{{"demo" | Title}}config.conf
+      SERVICE_NAME: {{$pipeline.Name}}
+      DOCKER_IMAGE: {{$pipeline.DockerImage}}
+{{ end }}
