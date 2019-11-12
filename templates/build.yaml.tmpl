@@ -151,7 +151,7 @@ pipelines:
                 command: /bin/sh
                 arguments:
                 - -c
-                - echo 'manually promoted on $(date)'
+                - echo "manually promoted on $(date)"
                 working_directory: build
                 run_if: passed
     parameters:
@@ -232,7 +232,7 @@ pipelines:
                 command: /bin/sh
                 arguments:
                 - -c
-                - echo 'manually promoted on $(date)'
+                - echo "manually promoted on $(date)"
                 working_directory: build
                 run_if: passed
     parameters:

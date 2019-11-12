@@ -65,8 +65,40 @@ func main() {
 		},
 		HelmChartPath: "helm-charts/webui-api/",
 	}
+	vizEnabler := &Pipeline{
+		Type:            "maven",
+		Name:            "viz-enabler",
+		Group:           "wip-paul",
+		DockerImage:     "ubirch/viz-enabler-server",
+		NamespacePrefix: "ubirch",
+		Git: GitRepo{
+			URL:    "git@github.com:ubirch/viz-enabler.git",
+			Branch: "master",
+		},
+		HelmGit: GitRepo{
+			URL:    "git@github.com:ubirch/viz-enabler.git",
+			Branch: "master",
+		},
+		HelmChartPath: "helm-charts/viz-enabler/",
+	}
+	discoveryServiceKafka := &Pipeline{
+		Type:            "maven",
+		Name:            "discovery-service-kafka",
+		Group:           "wip-paul",
+		DockerImage:     "ubirch/discovery-service-kafka",
+		NamespacePrefix: "ubirch",
+		Git: GitRepo{
+			URL:    "git@github.com:ubirch/ubirch-discovery-service.git",
+			Branch: "master",
+		},
+		HelmGit: GitRepo{
+			URL:    "git@github.com:ubirch/ubirch-discovery-service.git",
+			Branch: "master",
+		},
+		HelmChartPath: "helm-charts/discovery-service-kafka/",
+	}
 
-	pipelines := []*Pipeline{webui, webuiRest}
+	pipelines := []*Pipeline{webui, webuiRest, vizEnabler, discoveryServiceKafka}
 
 	tmpl.ExecuteTemplate(os.Stdout, "build.yaml.tmpl", map[string]interface{}{
 		"Pipelines": pipelines,
