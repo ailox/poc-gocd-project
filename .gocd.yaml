@@ -1,0 +1,202 @@
+--
+format_version: 3
+pipelines:
+  web-ui-build:
+    # DOCKERFILE
+    group: wip-paul
+    label_template: ${COUNT}-${git[:7]}
+    lock_behavior: unlockWhenFinished
+    display_order: -1
+    materials:
+      git:
+        git: git@github.com:ubirch/ubirch-web-ui.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - docker:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          docker-build:
+            timeout: 0
+            tasks:
+            - exec:
+                command: bash
+                arguments:
+                - -c
+                - 'docker build -t #{DOCKER_IMAGE}:$GO_PIPELINE_LABEL . &&
+                  docker tag #{DOCKER_IMAGE}:$GO_PIPELINE_LABEL #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:$GO_PIPELINE_LABEL &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    parameters:
+      DOCKER_IMAGE: ubirch/ubirch-web-ui
+
+  web-ui-deploy-dev:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "web-ui-build"
+        stage: docker
+      git:
+        git: git@github.com:ubirch/wip-helmcharts.git
+        shallow_clone: false
+        auto_update: true
+        branch: develop
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo 'manually promoted on $(date)'
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: dev
+      NAMESPACE: ubirch-dev
+      CHARTPATH: web-ui/
+      K8S_CFG: ubirchDevconfig.conf
+      SERVICE_NAME: web-ui
+      DOCKER_IMAGE: ubirch/ubirch-web-ui
+
+  web-ui-deploy-demo:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "web-ui-deploy-dev"
+        stage: promote
+      git:
+        git: git@github.com:ubirch/wip-helmcharts.git
+        shallow_clone: false
+        auto_update: true
+        branch: develop
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo 'manually promoted on $(date)'
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: demo
+      NAMESPACE: ubirch-demo
+      CHARTPATH: web-ui/
+      K8S_CFG: ubirchDemoconfig.conf
+      SERVICE_NAME: web-ui
+      DOCKER_IMAGE: ubirch/ubirch-web-ui
