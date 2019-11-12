@@ -215,8 +215,8 @@ pipelines:
         destination: build
       maven:
         ignore_for_scheduling: false
-        pipeline: "web-ui-rest-build"
-        stage: docker
+        pipeline: "Maven"
+        stage: maven-test
     stages:
     - docker:
         fetch_materials: true
@@ -241,8 +241,7 @@ pipelines:
                 working_directory: build
                 run_if: passed
     parameters:
-      MAVEN_CMD: deploy
-      SERVICE_NAME: ubirch-web-ui
+      DOCKER_IMAGE: ubirch/web-admin-api-server
   web-ui-rest-deploy-dev:
     group: wip-paul
     label_template: ${service}

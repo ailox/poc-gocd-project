@@ -17,8 +17,8 @@ pipelines:
         destination: build
       maven:
         ignore_for_scheduling: false
-        pipeline: "{{$pipeline.Name}}-build"
-        stage: docker
+        pipeline: "Maven"
+        stage: maven-test
     stages:
     - docker:
         fetch_materials: true
@@ -43,8 +43,7 @@ pipelines:
                 working_directory: build
                 run_if: passed
     parameters:
-      MAVEN_CMD: deploy
-      SERVICE_NAME: ubirch-web-ui
+      DOCKER_IMAGE: {{$pipeline.DockerImage}}
 {{- else if eq $pipeline.Type "dockerfile" }}
     # DOCKERFILE
     {{ if $pipeline.Group }}group: {{$pipeline.Group}}{{end}}
