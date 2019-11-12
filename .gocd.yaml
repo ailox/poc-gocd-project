@@ -802,3 +802,1410 @@ pipelines:
       K8S_CFG: ubirchDemoconfig.conf
       SERVICE_NAME: discovery-service-kafka
       DOCKER_IMAGE: ubirch/discovery-service-kafka
+
+  niomon-auth-build:
+    # MAVEN-DOCKER
+    group: wip-paul
+    label_template: ${COUNT}-${git[:7]}
+    lock_behavior: unlockWhenFinished
+    display_order: -1
+    materials:
+      git:
+        git: git@github.com:ubirch/niomon-auth.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+      maven:
+        ignore_for_scheduling: false
+        pipeline: "Maven"
+        stage: maven-test
+    stages:
+    - docker:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          docker-build:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c 
+                - 'mkdir -p maven-repo &&
+                  docker run --user `id -u`:`id -g` --group-add 999 --rm -v /home/go/.m2:/build/.m2 -v $PWD/maven-repo:/maven-repo -v $PWD:/build -v /var/run/docker.sock:/var/run/docker.sock -v $HOME/.docker:/.docker --entrypoint /bin/bash ubirch/maven-build:vOpenJDK_${GO_DEPENDENCY_LABEL_MAVEN} -c "mvn deploy -B -DskipTests=true -Ddockerfile.dockerConfigFile=/.docker/config.json -Duser.home=/build -Ddockerfile.tag=${GO_PIPELINE_LABEL} -Ddockerfile.push.skip=false -Dbuild.number=${GO_PIPELINE_LABEL}"'
+                working_directory: build
+                run_if: passed
+    parameters:
+      DOCKER_IMAGE: ubirch/niomon-auth
+  niomon-auth-deploy-dev:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "niomon-auth-build"
+        stage: docker
+      git:
+        git: git@github.com:ubirch/niomon-common-files.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo "manually promoted on $(date)"
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: dev
+      NAMESPACE: ubirch-dev
+      CHARTPATH: helm-charts/auth/
+      K8S_CFG: ubirchDevconfig.conf
+      SERVICE_NAME: niomon-auth
+      DOCKER_IMAGE: ubirch/niomon-auth
+
+  niomon-auth-deploy-demo:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "niomon-auth-deploy-dev"
+        stage: promote
+      git:
+        git: git@github.com:ubirch/niomon-common-files.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo "manually promoted on $(date)"
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: demo
+      NAMESPACE: ubirch-demo
+      CHARTPATH: helm-charts/auth/
+      K8S_CFG: ubirchDemoconfig.conf
+      SERVICE_NAME: niomon-auth
+      DOCKER_IMAGE: ubirch/niomon-auth
+
+  niomon-decoder-build:
+    # MAVEN-DOCKER
+    group: wip-paul
+    label_template: ${COUNT}-${git[:7]}
+    lock_behavior: unlockWhenFinished
+    display_order: -1
+    materials:
+      git:
+        git: git@github.com:ubirch/niomon-decoder.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+      maven:
+        ignore_for_scheduling: false
+        pipeline: "Maven"
+        stage: maven-test
+    stages:
+    - docker:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          docker-build:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c 
+                - 'mkdir -p maven-repo &&
+                  docker run --user `id -u`:`id -g` --group-add 999 --rm -v /home/go/.m2:/build/.m2 -v $PWD/maven-repo:/maven-repo -v $PWD:/build -v /var/run/docker.sock:/var/run/docker.sock -v $HOME/.docker:/.docker --entrypoint /bin/bash ubirch/maven-build:vOpenJDK_${GO_DEPENDENCY_LABEL_MAVEN} -c "mvn deploy -B -DskipTests=true -Ddockerfile.dockerConfigFile=/.docker/config.json -Duser.home=/build -Ddockerfile.tag=${GO_PIPELINE_LABEL} -Ddockerfile.push.skip=false -Dbuild.number=${GO_PIPELINE_LABEL}"'
+                working_directory: build
+                run_if: passed
+    parameters:
+      DOCKER_IMAGE: ubirch/niomon-decoder
+  niomon-decoder-deploy-dev:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "niomon-decoder-build"
+        stage: docker
+      git:
+        git: git@github.com:ubirch/niomon-common-files.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo "manually promoted on $(date)"
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: dev
+      NAMESPACE: ubirch-dev
+      CHARTPATH: helm-charts/decoder/
+      K8S_CFG: ubirchDevconfig.conf
+      SERVICE_NAME: niomon-decoder
+      DOCKER_IMAGE: ubirch/niomon-decoder
+
+  niomon-decoder-deploy-demo:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "niomon-decoder-deploy-dev"
+        stage: promote
+      git:
+        git: git@github.com:ubirch/niomon-common-files.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo "manually promoted on $(date)"
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: demo
+      NAMESPACE: ubirch-demo
+      CHARTPATH: helm-charts/decoder/
+      K8S_CFG: ubirchDemoconfig.conf
+      SERVICE_NAME: niomon-decoder
+      DOCKER_IMAGE: ubirch/niomon-decoder
+
+  niomon-enricher-build:
+    # MAVEN-DOCKER
+    group: wip-paul
+    label_template: ${COUNT}-${git[:7]}
+    lock_behavior: unlockWhenFinished
+    display_order: -1
+    materials:
+      git:
+        git: git@github.com:ubirch/niomon-enricher.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+      maven:
+        ignore_for_scheduling: false
+        pipeline: "Maven"
+        stage: maven-test
+    stages:
+    - docker:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          docker-build:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c 
+                - 'mkdir -p maven-repo &&
+                  docker run --user `id -u`:`id -g` --group-add 999 --rm -v /home/go/.m2:/build/.m2 -v $PWD/maven-repo:/maven-repo -v $PWD:/build -v /var/run/docker.sock:/var/run/docker.sock -v $HOME/.docker:/.docker --entrypoint /bin/bash ubirch/maven-build:vOpenJDK_${GO_DEPENDENCY_LABEL_MAVEN} -c "mvn deploy -B -DskipTests=true -Ddockerfile.dockerConfigFile=/.docker/config.json -Duser.home=/build -Ddockerfile.tag=${GO_PIPELINE_LABEL} -Ddockerfile.push.skip=false -Dbuild.number=${GO_PIPELINE_LABEL}"'
+                working_directory: build
+                run_if: passed
+    parameters:
+      DOCKER_IMAGE: ubirch/niomon-enricher
+  niomon-enricher-deploy-dev:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "niomon-enricher-build"
+        stage: docker
+      git:
+        git: git@github.com:ubirch/niomon-common-files.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo "manually promoted on $(date)"
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: dev
+      NAMESPACE: ubirch-dev
+      CHARTPATH: helm-charts/enricher/
+      K8S_CFG: ubirchDevconfig.conf
+      SERVICE_NAME: niomon-enricher
+      DOCKER_IMAGE: ubirch/niomon-enricher
+
+  niomon-enricher-deploy-demo:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "niomon-enricher-deploy-dev"
+        stage: promote
+      git:
+        git: git@github.com:ubirch/niomon-common-files.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo "manually promoted on $(date)"
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: demo
+      NAMESPACE: ubirch-demo
+      CHARTPATH: helm-charts/enricher/
+      K8S_CFG: ubirchDemoconfig.conf
+      SERVICE_NAME: niomon-enricher
+      DOCKER_IMAGE: ubirch/niomon-enricher
+
+  niomon-http-build:
+    # MAVEN-DOCKER
+    group: wip-paul
+    label_template: ${COUNT}-${git[:7]}
+    lock_behavior: unlockWhenFinished
+    display_order: -1
+    materials:
+      git:
+        git: git@github.com:ubirch/niomon-http.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+      maven:
+        ignore_for_scheduling: false
+        pipeline: "Maven"
+        stage: maven-test
+    stages:
+    - docker:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          docker-build:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c 
+                - 'mkdir -p maven-repo &&
+                  docker run --user `id -u`:`id -g` --group-add 999 --rm -v /home/go/.m2:/build/.m2 -v $PWD/maven-repo:/maven-repo -v $PWD:/build -v /var/run/docker.sock:/var/run/docker.sock -v $HOME/.docker:/.docker --entrypoint /bin/bash ubirch/maven-build:vOpenJDK_${GO_DEPENDENCY_LABEL_MAVEN} -c "mvn deploy -B -DskipTests=true -Ddockerfile.dockerConfigFile=/.docker/config.json -Duser.home=/build -Ddockerfile.tag=${GO_PIPELINE_LABEL} -Ddockerfile.push.skip=false -Dbuild.number=${GO_PIPELINE_LABEL}"'
+                working_directory: build
+                run_if: passed
+    parameters:
+      DOCKER_IMAGE: ubirch/niomon-http
+  niomon-http-deploy-dev:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "niomon-http-build"
+        stage: docker
+      git:
+        git: git@github.com:ubirch/niomon-common-files.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo "manually promoted on $(date)"
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: dev
+      NAMESPACE: ubirch-dev
+      CHARTPATH: helm-charts/http/
+      K8S_CFG: ubirchDevconfig.conf
+      SERVICE_NAME: niomon-http
+      DOCKER_IMAGE: ubirch/niomon-http
+
+  niomon-http-deploy-demo:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "niomon-http-deploy-dev"
+        stage: promote
+      git:
+        git: git@github.com:ubirch/niomon-common-files.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo "manually promoted on $(date)"
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: demo
+      NAMESPACE: ubirch-demo
+      CHARTPATH: helm-charts/http/
+      K8S_CFG: ubirchDemoconfig.conf
+      SERVICE_NAME: niomon-http
+      DOCKER_IMAGE: ubirch/niomon-http
+
+  niomon-responder-build:
+    # MAVEN-DOCKER
+    group: wip-paul
+    label_template: ${COUNT}-${git[:7]}
+    lock_behavior: unlockWhenFinished
+    display_order: -1
+    materials:
+      git:
+        git: git@github.com:ubirch/niomon-responder.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+      maven:
+        ignore_for_scheduling: false
+        pipeline: "Maven"
+        stage: maven-test
+    stages:
+    - docker:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          docker-build:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c 
+                - 'mkdir -p maven-repo &&
+                  docker run --user `id -u`:`id -g` --group-add 999 --rm -v /home/go/.m2:/build/.m2 -v $PWD/maven-repo:/maven-repo -v $PWD:/build -v /var/run/docker.sock:/var/run/docker.sock -v $HOME/.docker:/.docker --entrypoint /bin/bash ubirch/maven-build:vOpenJDK_${GO_DEPENDENCY_LABEL_MAVEN} -c "mvn deploy -B -DskipTests=true -Ddockerfile.dockerConfigFile=/.docker/config.json -Duser.home=/build -Ddockerfile.tag=${GO_PIPELINE_LABEL} -Ddockerfile.push.skip=false -Dbuild.number=${GO_PIPELINE_LABEL}"'
+                working_directory: build
+                run_if: passed
+    parameters:
+      DOCKER_IMAGE: ubirch/niomon-responder
+  niomon-responder-deploy-dev:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "niomon-responder-build"
+        stage: docker
+      git:
+        git: git@github.com:ubirch/niomon-common-files.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo "manually promoted on $(date)"
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: dev
+      NAMESPACE: ubirch-dev
+      CHARTPATH: helm-charts/responder/
+      K8S_CFG: ubirchDevconfig.conf
+      SERVICE_NAME: niomon-responder
+      DOCKER_IMAGE: ubirch/niomon-responder
+
+  niomon-responder-deploy-demo:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "niomon-responder-deploy-dev"
+        stage: promote
+      git:
+        git: git@github.com:ubirch/niomon-common-files.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo "manually promoted on $(date)"
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: demo
+      NAMESPACE: ubirch-demo
+      CHARTPATH: helm-charts/responder/
+      K8S_CFG: ubirchDemoconfig.conf
+      SERVICE_NAME: niomon-responder
+      DOCKER_IMAGE: ubirch/niomon-responder
+
+  niomon-signer-build:
+    # MAVEN-DOCKER
+    group: wip-paul
+    label_template: ${COUNT}-${git[:7]}
+    lock_behavior: unlockWhenFinished
+    display_order: -1
+    materials:
+      git:
+        git: git@github.com:ubirch/niomon-signer.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+      maven:
+        ignore_for_scheduling: false
+        pipeline: "Maven"
+        stage: maven-test
+    stages:
+    - docker:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          docker-build:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c 
+                - 'mkdir -p maven-repo &&
+                  docker run --user `id -u`:`id -g` --group-add 999 --rm -v /home/go/.m2:/build/.m2 -v $PWD/maven-repo:/maven-repo -v $PWD:/build -v /var/run/docker.sock:/var/run/docker.sock -v $HOME/.docker:/.docker --entrypoint /bin/bash ubirch/maven-build:vOpenJDK_${GO_DEPENDENCY_LABEL_MAVEN} -c "mvn deploy -B -DskipTests=true -Ddockerfile.dockerConfigFile=/.docker/config.json -Duser.home=/build -Ddockerfile.tag=${GO_PIPELINE_LABEL} -Ddockerfile.push.skip=false -Dbuild.number=${GO_PIPELINE_LABEL}"'
+                working_directory: build
+                run_if: passed
+    parameters:
+      DOCKER_IMAGE: ubirch/niomon-signer
+  niomon-signer-deploy-dev:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "niomon-signer-build"
+        stage: docker
+      git:
+        git: git@github.com:ubirch/niomon-common-files.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo "manually promoted on $(date)"
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: dev
+      NAMESPACE: ubirch-dev
+      CHARTPATH: helm-charts/signer/
+      K8S_CFG: ubirchDevconfig.conf
+      SERVICE_NAME: niomon-signer
+      DOCKER_IMAGE: ubirch/niomon-signer
+
+  niomon-signer-deploy-demo:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "niomon-signer-deploy-dev"
+        stage: promote
+      git:
+        git: git@github.com:ubirch/niomon-common-files.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo "manually promoted on $(date)"
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: demo
+      NAMESPACE: ubirch-demo
+      CHARTPATH: helm-charts/signer/
+      K8S_CFG: ubirchDemoconfig.conf
+      SERVICE_NAME: niomon-signer
+      DOCKER_IMAGE: ubirch/niomon-signer
+
+  niomon-verifier-build:
+    # MAVEN-DOCKER
+    group: wip-paul
+    label_template: ${COUNT}-${git[:7]}
+    lock_behavior: unlockWhenFinished
+    display_order: -1
+    materials:
+      git:
+        git: git@github.com:ubirch/niomon-verifier.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+      maven:
+        ignore_for_scheduling: false
+        pipeline: "Maven"
+        stage: maven-test
+    stages:
+    - docker:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          docker-build:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c 
+                - 'mkdir -p maven-repo &&
+                  docker run --user `id -u`:`id -g` --group-add 999 --rm -v /home/go/.m2:/build/.m2 -v $PWD/maven-repo:/maven-repo -v $PWD:/build -v /var/run/docker.sock:/var/run/docker.sock -v $HOME/.docker:/.docker --entrypoint /bin/bash ubirch/maven-build:vOpenJDK_${GO_DEPENDENCY_LABEL_MAVEN} -c "mvn deploy -B -DskipTests=true -Ddockerfile.dockerConfigFile=/.docker/config.json -Duser.home=/build -Ddockerfile.tag=${GO_PIPELINE_LABEL} -Ddockerfile.push.skip=false -Dbuild.number=${GO_PIPELINE_LABEL}"'
+                working_directory: build
+                run_if: passed
+    parameters:
+      DOCKER_IMAGE: ubirch/niomon-verifier
+  niomon-verifier-deploy-dev:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "niomon-verifier-build"
+        stage: docker
+      git:
+        git: git@github.com:ubirch/niomon-common-files.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo "manually promoted on $(date)"
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: dev
+      NAMESPACE: ubirch-dev
+      CHARTPATH: helm-charts/verifier/
+      K8S_CFG: ubirchDevconfig.conf
+      SERVICE_NAME: niomon-verifier
+      DOCKER_IMAGE: ubirch/niomon-verifier
+
+  niomon-verifier-deploy-demo:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "niomon-verifier-deploy-dev"
+        stage: promote
+      git:
+        git: git@github.com:ubirch/niomon-common-files.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo "manually promoted on $(date)"
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: demo
+      NAMESPACE: ubirch-demo
+      CHARTPATH: helm-charts/verifier/
+      K8S_CFG: ubirchDemoconfig.conf
+      SERVICE_NAME: niomon-verifier
+      DOCKER_IMAGE: ubirch/niomon-verifier
