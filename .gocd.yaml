@@ -199,3 +199,208 @@ pipelines:
       K8S_CFG: ubirchDemoconfig.conf
       SERVICE_NAME: web-ui
       DOCKER_IMAGE: ubirch/ubirch-web-ui
+
+  web-ui-rest-build:
+    # MAVEN-DOCKER
+    group: wip-paul
+    label_template: ${COUNT}-${git[:7]}
+    lock_behavior: unlockWhenFinished
+    display_order: -1
+    materials:
+      git:
+        git: git@github.com:ubirch/ubirch-web-ui-rest.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+      maven:
+        ignore_for_scheduling: false
+        pipeline: "web-ui-rest-build"
+        stage: docker
+    stages:
+    - docker:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          docker-build:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c 
+                - 'mkdir -p maven-repo &&
+                  docker run --user `id -u`:`id -g` --group-add 999 --rm -v /home/go/.m2:/build/.m2 -v $PWD/maven-repo:/maven-repo -v $PWD:/build -v /var/run/docker.sock:/var/run/docker.sock -v $HOME/.docker:/.docker --entrypoint /bin/bash ubirch/maven-build:vOpenJDK_${GO_DEPENDENCY_LABEL_MAVEN} -c "mvn deploy -B -DskipTests=true -DskipDockerPush=true -Ddockerfile.dockerConfigFile=/.docker/config.json -Duser.home=/build --set image.tag=${GO_PIPELINE_LABEL} -DimageName=#{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} -Dbuild.number=${GO_PIPELINE_LABEL}" &&
+                  docker push "#{DOCKER_IMAGE}:${GO_PIPELINE_LABEL}" &&
+                  docker tag "#{DOCKER_IMAGE}:${GO_PIPELINE_LABEL}" "#{DOCKER_IMAGE}:latest" &&
+                  docker push "#{DOCKER_IMAGE}:latest"'
+                working_directory: build
+                run_if: passed
+    parameters:
+      MAVEN_CMD: deploy
+      SERVICE_NAME: ubirch-web-ui
+  web-ui-rest-deploy-dev:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "web-ui-rest-build"
+        stage: docker
+      git:
+        git: git@github.com:ubirch/ubirch-web-ui-rest.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo 'manually promoted on $(date)'
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: dev
+      NAMESPACE: ubirch-dev
+      CHARTPATH: helm-charts/webui-api/
+      K8S_CFG: ubirchDevconfig.conf
+      SERVICE_NAME: web-ui-rest
+      DOCKER_IMAGE: ubirch/web-admin-api-server
+
+  web-ui-rest-deploy-demo:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "web-ui-rest-deploy-dev"
+        stage: promote
+      git:
+        git: git@github.com:ubirch/ubirch-web-ui-rest.git
+        shallow_clone: false
+        auto_update: true
+        branch: master
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo 'manually promoted on $(date)'
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: demo
+      NAMESPACE: ubirch-demo
+      CHARTPATH: helm-charts/webui-api/
+      K8S_CFG: ubirchDemoconfig.conf
+      SERVICE_NAME: web-ui-rest
+      DOCKER_IMAGE: ubirch/web-admin-api-server

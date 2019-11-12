@@ -49,8 +49,24 @@ func main() {
 		},
 		HelmChartPath: "helm-charts/web-ui/",
 	}
+	webuiRest := &Pipeline{
+		Type:            "maven",
+		Name:            "web-ui-rest",
+		Group:           "wip-paul",
+		DockerImage:     "ubirch/web-admin-api-server",
+		NamespacePrefix: "ubirch",
+		Git: GitRepo{
+			URL:    "git@github.com:ubirch/ubirch-web-ui-rest.git",
+			Branch: "master",
+		},
+		HelmGit: GitRepo{
+			URL:    "git@github.com:ubirch/ubirch-web-ui-rest.git",
+			Branch: "master",
+		},
+		HelmChartPath: "helm-charts/webui-api/",
+	}
 
-	pipelines := []*Pipeline{webui}
+	pipelines := []*Pipeline{webui, webuiRest}
 
 	tmpl.ExecuteTemplate(os.Stdout, "build.yaml.tmpl", map[string]interface{}{
 		"Pipelines": pipelines,
