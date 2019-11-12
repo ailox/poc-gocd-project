@@ -1,8 +1,6 @@
 --
 format_version: 3
 pipelines:
-{{ range $pipeline := .Pipelines }}
-{{ end }}
   {{.Pipeline.Name}}-deploy-dev:
     group: wip-paul
     label_template: ${service}

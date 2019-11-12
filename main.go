@@ -41,13 +41,13 @@ func main() {
 		NamespacePrefix: "ubirch",
 		Git: GitRepo{
 			URL:    "git@github.com:ubirch/ubirch-web-ui.git",
-			Branch: "master",
+			Branch: "dev",
 		},
 		HelmGit: GitRepo{
-			URL:    "git@github.com:ubirch/wip-helmcharts.git",
-			Branch: "develop",
+			URL:    "git@github.com:ubirch/ubirch-web-ui.git",
+			Branch: "dev",
 		},
-		HelmChartPath: "web-ui/",
+		HelmChartPath: "helm-charts/web-ui/",
 	}
 
 	pipelines := []*Pipeline{webui}
