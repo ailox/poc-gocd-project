@@ -1,0 +1,142 @@
+- name: web-ui
+  type: dockerfile
+  group: wip-paul
+  docker_image: ubirch/ubirch-web-ui
+  namespace_prefix: ubirch
+  git:
+    url: git@github.com:ubirch/ubirch-web-ui.git
+    branch: dev
+  helm_git:
+    url: git@github.com:ubirch/ubirch-web-ui.git
+    branch: dev
+  helm_chart_path: helm-charts/web-ui/
+
+- name: web-ui-rest
+  type: maven
+  group: wip-paul
+  docker_image: ubirch/web-admin-api-server
+  namespace_prefix: ubirch
+  git:
+    url: git@github.com:ubirch/ubirch-web-ui-rest.git
+    branch: master
+  helm_git:
+    url: git@github.com:ubirch/ubirch-web-ui-rest.git
+    branch: master
+  helm_chart_path: helm-charts/webui-api/
+
+- name: viz-enabler
+  type: maven
+  group: wip-paul
+  docker_image: ubirch/viz-enabler-server
+  namespace_prefix: ubirch
+  git:
+    url: git@github.com:ubirch/viz-enabler.git
+    branch: master
+  helm_git:
+    url: git@github.com:ubirch/viz-enabler.git
+    branch: master
+  helm_chart_path: helm-charts/viz-enabler/
+
+- name: discovery-service-kafka
+  type: maven
+  group: wip-paul
+  docker_image: ubirch/discovery-service-kafka
+  namespace_prefix: ubirch
+  git:
+    url: git@github.com:ubirch/ubirch-discovery-service.git
+    branch: master
+  helm_git:
+    url: git@github.com:ubirch/ubirch-discovery-service.git
+    branch: master
+  helm_chart_path: helm-charts/discovery-service-kafka/
+
+- name: niomon-auth
+  type: maven
+  group: wip-paul
+  docker_image: ubirch/niomon-auth
+  namespace_prefix: ubirch
+  git:
+    url: git@github.com:ubirch/niomon-auth.git
+    branch: master
+  helm_git:
+    url: git@github.com:ubirch/niomon-common-files.git
+    branch: master
+  helm_chart_path: helm-charts/auth/
+
+- name: niomon-decoder
+  type: maven
+  group: wip-paul
+  docker_image: ubirch/niomon-decoder
+  namespace_prefix: ubirch
+  git:
+    url: git@github.com:ubirch/niomon-decoder.git
+    branch: master
+  helm_git:
+    url: git@github.com:ubirch/niomon-common-files.git
+    branch: master
+  helm_chart_path: helm-charts/decoder/
+
+- name: niomon-enricher
+  type: maven
+  group: wip-paul
+  docker_image: ubirch/niomon-enricher
+  namespace_prefix: ubirch
+  git:
+    url: git@github.com:ubirch/niomon-enricher.git
+    branch: master
+  helm_git:
+    url: git@github.com:ubirch/niomon-common-files.git
+    branch: master
+  helm_chart_path: helm-charts/enricher/
+
+- name: niomon-http
+  type: maven
+  group: wip-paul
+  docker_image: ubirch/niomon-http
+  namespace_prefix: ubirch
+  git:
+    url: git@github.com:ubirch/niomon-http.git
+    branch: master
+  helm_git:
+    url: git@github.com:ubirch/niomon-common-files.git
+    branch: master
+  helm_chart_path: helm-charts/http/
+
+- name: niomon-responder
+  type: maven
+  group: wip-paul
+  docker_image: ubirch/niomon-responder
+  namespace_prefix: ubirch
+  git:
+    url: git@github.com:ubirch/niomon-responder.git
+    branch: master
+  helm_git:
+    url: git@github.com:ubirch/niomon-common-files.git
+    branch: master
+  helm_chart_path: helm-charts/responder/
+
+- name: niomon-signer
+  type: maven
+  group: wip-paul
+  docker_image: ubirch/niomon-signer
+  namespace_prefix: ubirch
+  git:
+    url: git@github.com:ubirch/niomon-signer.git
+    branch: master
+  helm_git:
+    url: git@github.com:ubirch/niomon-common-files.git
+    branch: master
+  helm_chart_path: helm-charts/signer/
+
+- name: niomon-verifier
+  type: maven
+  group: wip-paul
+  docker_image: ubirch/niomon-verifier
+  namespace_prefix: ubirch
+  git:
+    url: git@github.com:ubirch/niomon-verifier.git
+    branch: master
+  helm_git:
+    url: git@github.com:ubirch/niomon-common-files.git
+    branch: master
+  helm_chart_path: helm-charts/verifier/

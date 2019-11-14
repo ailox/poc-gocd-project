@@ -1,25 +1,28 @@
 package main
 
 import (
+	"log"
 	"os"
 	"strings"
 	"text/template"
+
+	"gopkg.in/yaml.v2"
 )
 
 type GitRepo struct {
-	URL    string
-	Branch string
+	URL    string `yaml:"url"`
+	Branch string `yaml:"branch"`
 }
 
 type Pipeline struct {
-	Type            string
-	Name            string
-	Group           string
-	DockerImage     string
-	NamespacePrefix string
-	Git             GitRepo
-	HelmGit         GitRepo
-	HelmChartPath   string
+	Name            string   `yaml:"name"`
+	Type            string   `yaml:"type"`
+	Group           string   `yaml:"group"`
+	DockerImage     string   `yaml:"docker_image"`
+	NamespacePrefix string   `yaml:"namespace_prefix"`
+	Git             *GitRepo `yaml:"git"`
+	HelmGit         *GitRepo `yaml:"helm_git"`
+	HelmChartPath   string   `yaml:"helm_chart_path"`
 }
 
 func main() {
@@ -33,202 +36,17 @@ func main() {
 
 	environments := []string{"dev", "demo", "prod"}
 
-	webui := &Pipeline{
-		Type:            "dockerfile",
-		Name:            "web-ui",
-		Group:           "wip-paul",
-		DockerImage:     "ubirch/ubirch-web-ui",
-		NamespacePrefix: "ubirch",
-		Git: GitRepo{
-			URL:    "git@github.com:ubirch/ubirch-web-ui.git",
-			Branch: "dev",
-		},
-		HelmGit: GitRepo{
-			URL:    "git@github.com:ubirch/ubirch-web-ui.git",
-			Branch: "dev",
-		},
-		HelmChartPath: "helm-charts/web-ui/",
-	}
-	webuiRest := &Pipeline{
-		Type:            "maven",
-		Name:            "web-ui-rest",
-		Group:           "wip-paul",
-		DockerImage:     "ubirch/web-admin-api-server",
-		NamespacePrefix: "ubirch",
-		Git: GitRepo{
-			URL:    "git@github.com:ubirch/ubirch-web-ui-rest.git",
-			Branch: "master",
-		},
-		HelmGit: GitRepo{
-			URL:    "git@github.com:ubirch/ubirch-web-ui-rest.git",
-			Branch: "master",
-		},
-		HelmChartPath: "helm-charts/webui-api/",
-	}
-	vizEnabler := &Pipeline{
-		Type:            "maven",
-		Name:            "viz-enabler",
-		Group:           "wip-paul",
-		DockerImage:     "ubirch/viz-enabler-server",
-		NamespacePrefix: "ubirch",
-		Git: GitRepo{
-			URL:    "git@github.com:ubirch/viz-enabler.git",
-			Branch: "master",
-		},
-		HelmGit: GitRepo{
-			URL:    "git@github.com:ubirch/viz-enabler.git",
-			Branch: "master",
-		},
-		HelmChartPath: "helm-charts/viz-enabler/",
-	}
-	discoveryServiceKafka := &Pipeline{
-		Type:            "maven",
-		Name:            "discovery-service-kafka",
-		Group:           "wip-paul",
-		DockerImage:     "ubirch/discovery-service-kafka",
-		NamespacePrefix: "ubirch",
-		Git: GitRepo{
-			URL:    "git@github.com:ubirch/ubirch-discovery-service.git",
-			Branch: "master",
-		},
-		HelmGit: GitRepo{
-			URL:    "git@github.com:ubirch/ubirch-discovery-service.git",
-			Branch: "master",
-		},
-		HelmChartPath: "helm-charts/discovery-service-kafka/",
+	pipelines := []*Pipeline{}
+
+	f, err := os.OpenFile("services.yaml", os.O_RDONLY, 0644)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	niomonAuth := &Pipeline{
-		Type:            "maven",
-		Name:            "niomon-auth",
-		Group:           "wip-paul",
-		DockerImage:     "ubirch/niomon-auth",
-		NamespacePrefix: "ubirch",
-		Git: GitRepo{
-			URL:    "git@github.com:ubirch/niomon-auth.git",
-			Branch: "master",
-		},
-		HelmGit: GitRepo{
-			URL:    "git@github.com:ubirch/niomon-common-files.git",
-			Branch: "master",
-		},
-		HelmChartPath: "helm-charts/auth/",
-	}
-
-	niomonDecoder := &Pipeline{
-		Type:            "maven",
-		Name:            "niomon-decoder",
-		Group:           "wip-paul",
-		DockerImage:     "ubirch/niomon-decoder",
-		NamespacePrefix: "ubirch",
-		Git: GitRepo{
-			URL:    "git@github.com:ubirch/niomon-decoder.git",
-			Branch: "master",
-		},
-		HelmGit: GitRepo{
-			URL:    "git@github.com:ubirch/niomon-common-files.git",
-			Branch: "master",
-		},
-		HelmChartPath: "helm-charts/decoder/",
-	}
-
-	niomonEnricher := &Pipeline{
-		Type:            "maven",
-		Name:            "niomon-enricher",
-		Group:           "wip-paul",
-		DockerImage:     "ubirch/niomon-enricher",
-		NamespacePrefix: "ubirch",
-		Git: GitRepo{
-			URL:    "git@github.com:ubirch/niomon-enricher.git",
-			Branch: "master",
-		},
-		HelmGit: GitRepo{
-			URL:    "git@github.com:ubirch/niomon-common-files.git",
-			Branch: "master",
-		},
-		HelmChartPath: "helm-charts/enricher/",
-	}
-
-	niomonHTTP := &Pipeline{
-		Type:            "maven",
-		Name:            "niomon-http",
-		Group:           "wip-paul",
-		DockerImage:     "ubirch/niomon-http",
-		NamespacePrefix: "ubirch",
-		Git: GitRepo{
-			URL:    "git@github.com:ubirch/niomon-http.git",
-			Branch: "master",
-		},
-		HelmGit: GitRepo{
-			URL:    "git@github.com:ubirch/niomon-common-files.git",
-			Branch: "master",
-		},
-		HelmChartPath: "helm-charts/http/",
-	}
-
-	niomonResponder := &Pipeline{
-		Type:            "maven",
-		Name:            "niomon-responder",
-		Group:           "wip-paul",
-		DockerImage:     "ubirch/niomon-responder",
-		NamespacePrefix: "ubirch",
-		Git: GitRepo{
-			URL:    "git@github.com:ubirch/niomon-responder.git",
-			Branch: "master",
-		},
-		HelmGit: GitRepo{
-			URL:    "git@github.com:ubirch/niomon-common-files.git",
-			Branch: "master",
-		},
-		HelmChartPath: "helm-charts/responder/",
-	}
-
-	niomonSigner := &Pipeline{
-		Type:            "maven",
-		Name:            "niomon-signer",
-		Group:           "wip-paul",
-		DockerImage:     "ubirch/niomon-signer",
-		NamespacePrefix: "ubirch",
-		Git: GitRepo{
-			URL:    "git@github.com:ubirch/niomon-signer.git",
-			Branch: "master",
-		},
-		HelmGit: GitRepo{
-			URL:    "git@github.com:ubirch/niomon-common-files.git",
-			Branch: "master",
-		},
-		HelmChartPath: "helm-charts/signer/",
-	}
-
-	niomonVerifier := &Pipeline{
-		Type:            "maven",
-		Name:            "niomon-verifier",
-		Group:           "wip-paul",
-		DockerImage:     "ubirch/niomon-verifier",
-		NamespacePrefix: "ubirch",
-		Git: GitRepo{
-			URL:    "git@github.com:ubirch/niomon-verifier.git",
-			Branch: "master",
-		},
-		HelmGit: GitRepo{
-			URL:    "git@github.com:ubirch/niomon-common-files.git",
-			Branch: "master",
-		},
-		HelmChartPath: "helm-charts/verifier/",
-	}
-
-	pipelines := []*Pipeline{
-		webui,
-		webuiRest,
-		vizEnabler,
-		discoveryServiceKafka,
-		niomonAuth,
-		niomonDecoder,
-		niomonEnricher,
-		niomonHTTP,
-		niomonResponder,
-		niomonSigner,
-		niomonVerifier,
+	yd := yaml.NewDecoder(f)
+	err = yd.Decode(&pipelines)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	tmpl.ExecuteTemplate(os.Stdout, "build.yaml.tmpl", map[string]interface{}{

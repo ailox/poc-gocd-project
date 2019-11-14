@@ -1,7 +1,85 @@
---
-format_version: 3
-pipelines:
-  {{.Pipeline.Name}}-deploy-dev:
+{{ define "maven" -}}
+    # MAVEN-DOCKER
+    {{ if .Group }}group: {{.Group}}{{end}}
+    label_template: ${COUNT}-${git[:7]}
+    lock_behavior: unlockWhenFinished
+    display_order: -1
+    materials:
+      git:
+        git: {{.Git.URL}}
+        shallow_clone: false
+        auto_update: true
+        branch: {{.Git.Branch}}
+        destination: build
+      maven:
+        ignore_for_scheduling: false
+        pipeline: "Maven"
+        stage: maven-test
+    stages:
+    - docker:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          docker-build:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c 
+                - 'mkdir -p maven-repo &&
+                  docker run --user `id -u`:`id -g` --group-add 999 --rm -v /home/go/.m2:/build/.m2 -v $PWD/maven-repo:/maven-repo -v $PWD:/build -v /var/run/docker.sock:/var/run/docker.sock -v $HOME/.docker:/.docker --entrypoint /bin/bash ubirch/maven-build:vOpenJDK_${GO_DEPENDENCY_LABEL_MAVEN} -c "mvn deploy -B -DskipTests=true -Ddockerfile.dockerConfigFile=/.docker/config.json -Duser.home=/build -Ddockerfile.tag=${GO_PIPELINE_LABEL} -Ddockerfile.push.skip=false -Dbuild.number=${GO_PIPELINE_LABEL}"'
+                working_directory: build
+                run_if: passed
+    parameters:
+      DOCKER_IMAGE: {{.DockerImage}}
+{{- end }}
+
+{{ define "dockerfile" -}}
+    # DOCKERFILE
+    {{ if .Group }}group: {{.Group}}{{end}}
+    label_template: ${COUNT}-${git[:7]}
+    lock_behavior: unlockWhenFinished
+    display_order: -1
+    materials:
+      git:
+        git: {{.Git.URL}}
+        shallow_clone: false
+        auto_update: true
+        branch: {{.Git.Branch}}
+        destination: build
+    stages:
+    - docker:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          docker-build:
+            timeout: 0
+            tasks:
+            - exec:
+                command: bash
+                arguments:
+                - -c
+                - 'docker build -t #{DOCKER_IMAGE}:$GO_PIPELINE_LABEL . &&
+                  docker tag #{DOCKER_IMAGE}:$GO_PIPELINE_LABEL #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:$GO_PIPELINE_LABEL &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    parameters:
+      DOCKER_IMAGE: {{.DockerImage}}
+{{- end }}
+
+{{ define "deploy" -}}
+  {{.Name}}-deploy-dev:
     group: wip-paul
     label_template: ${service}
     lock_behavior: none
@@ -9,13 +87,13 @@ pipelines:
     materials:
       service:
         ignore_for_scheduling: false
-        pipeline: "{{.Pipeline.Name}}-build"
+        pipeline: "{{.Name}}-build"
         stage: docker
       git:
-        git: {{.Pipeline.HelmGit.URL}}
+        git: {{.HelmGit.URL}}
         shallow_clone: false
         auto_update: true
-        branch: {{.Pipeline.HelmGit.Branch}}
+        branch: {{.HelmGit.Branch}}
         destination: build
     stages:
     - deploy:
@@ -71,14 +149,95 @@ pipelines:
                 command: /bin/sh
                 arguments:
                 - -c
-                - echo 'manually promoted on $(date)'
+                - echo "manually promoted on $(date)"
                 working_directory: build
                 run_if: passed
     parameters:
-      ENVIRONMENT: dev
-      NAMESPACE: ubirch-dev
-      CHARTPATH: web-ui/
-      K8S_CFG: ubirchDevconfig.conf
-      DOCKER_REPO: ubirch
-      SERVICE_NAME: web-ui
-      DOCKER_IMAGE: {{.Pipeline.DockerImage}}
+      ENVIRONMENT: {{"dev"}}
+      NAMESPACE: {{.NamespacePrefix}}-{{"dev"}}
+      CHARTPATH: {{.HelmChartPath}}
+      K8S_CFG: ubirch{{"dev" | Title}}config.conf
+      SERVICE_NAME: {{.Name}}
+      DOCKER_IMAGE: {{.DockerImage}}
+
+  {{.Name}}-deploy-demo:
+    group: wip-paul
+    label_template: ${service}
+    lock_behavior: none
+    display_order: -1
+    materials:
+      service:
+        ignore_for_scheduling: false
+        pipeline: "{{.Name}}-deploy-dev"
+        stage: promote
+      git:
+        git: {{.HelmGit.URL}}
+        shallow_clone: false
+        auto_update: true
+        branch: {{.HelmGit.Branch}}
+        destination: build
+    stages:
+    - deploy:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker run --rm -v $PWD:/build -v /home/go/#{K8S_CFG}:/opt/kubeconfig -e KUBECONFIG="/opt/kubeconfig" --entrypoint /bin/bash dtzar/helm-kubectl:2.14.3 -c "helm upgrade --install --atomic --wait --timeout=120 --namespace=#{NAMESPACE} --values /build/#{CHARTPATH}values.#{ENVIRONMENT}.yaml --set=image.tag=${GO_PIPELINE_LABEL} #{SERVICE_NAME} /build/#{CHARTPATH}"'
+                working_directory: build
+                run_if: passed
+    - bump:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: success
+          allow_only_on_success: false
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/bash
+                arguments:
+                - -c
+                - 'docker pull #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} &&
+                  docker tag #{DOCKER_IMAGE}:${GO_PIPELINE_LABEL} #{DOCKER_IMAGE}:latest &&
+                  docker push #{DOCKER_IMAGE}:latest'
+                working_directory: build
+                run_if: passed
+    - promote:
+        fetch_materials: true
+        keep_artifacts: false
+        clean_workspace: false
+        approval:
+          type: manual
+          allow_only_on_success: true
+        jobs:
+          helm:
+            timeout: 0
+            tasks:
+            - exec:
+                command: /bin/sh
+                arguments:
+                - -c
+                - echo "manually promoted on $(date)"
+                working_directory: build
+                run_if: passed
+    parameters:
+      ENVIRONMENT: {{"demo"}}
+      NAMESPACE: {{.NamespacePrefix}}-{{"demo"}}
+      CHARTPATH: {{.HelmChartPath}}
+      K8S_CFG: ubirch{{"demo" | Title}}config.conf
+      SERVICE_NAME: {{.Name}}
+      DOCKER_IMAGE: {{.DockerImage}}
+{{- end }}
