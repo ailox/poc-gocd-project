@@ -37,18 +37,18 @@
     branch: master
   helm_chart_path: helm-charts/viz-enabler/
 
-- name: discovery-service-kafka
+- name: kafka-discovery-service
   type: maven
   group: wip-paul
-  docker_image: ubirch/discovery-service-kafka
-  namespace_prefix: ubirch
+  docker_image: ubirch/discovery-kafka-service
+  namespace_prefix: core
   git:
     url: git@github.com:ubirch/ubirch-discovery-service.git
     branch: master
   helm_git:
     url: git@github.com:ubirch/ubirch-discovery-service.git
     branch: master
-  helm_chart_path: helm-charts/discovery-service-kafka/
+  helm_chart_path: helm-charts/kafka-discovery-service/
 
 - name: niomon-auth
   type: maven

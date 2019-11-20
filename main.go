@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"path"
 	"strings"
 	"text/template"
 
@@ -49,8 +50,20 @@ func main() {
 		log.Fatal(err)
 	}
 
-	tmpl.ExecuteTemplate(os.Stdout, "build.yaml.tmpl", map[string]interface{}{
-		"Pipelines": pipelines,
-		"Envs":      environments,
-	})
+	for _, pipeline := range pipelines {
+		os.Mkdir(path.Join("services", pipeline.Name), 0755)
+		filename := path.Join("services", pipeline.Name, ".gocd.yaml")
+		f, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer f.Close()
+
+		tmpl.ExecuteTemplate(f, "build.yaml.tmpl", map[string]interface{}{
+			"Pipelines": []*Pipeline{pipeline},
+			"Envs":      environments,
+		})
+		f.Close()
+	}
+
 }
